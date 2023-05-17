@@ -1,129 +1,115 @@
 #!/usr/bin/env python3
-# $Revision: 2.1 $
+# $Revision: 3.0 $
 
-import string, os, sys, stat, re
+import os
+import re
+import subprocess
+import sys
 
-# Create a TRACE file if none exists
-def init_trace():
+
+TRACE_FIFO_NAME = "TRACE"
+TRACE_FIFO_CREATED = False
+
+
+def trace_init():
+    """Create a TRACE FIFO if it doesn't exist."""
+    global TRACE_FIFO_CREATED
     try:
-        os.stat("TRACE")
-    except OSError:
-        os.system("rm -f TRACE")
-        os.mkfifo("TRACE")
+        os.mkfifo(TRACE_FIFO_NAME)
+        TRACE_FIFO_CREATED = True
+    except FileExistsError:
+        pass
 
-# Remove TRACE if it exists
-def end_trace():
-    if stat.S_ISFIFO(os.stat("TRACE")[stat.ST_MODE]):
-        os.remove("TRACE")
+
+def trace_end():
+    """Remove TRACE FIFO if it exists."""
+    if TRACE_FIFO_CREATED:
+        os.remove(TRACE_FIFO_NAME)
     sys.exit(0)
 
-def hex_conv(s):
-    return int(s, 16)
 
-# Load symbols
-def load_symbols(prog):
-    pattern = re.compile("[^:]+:\s*([0-9a-fA-F]+)? (\w) (\w+)")
-    f = os.popen("nm -o "+prog)
+def load_symbols(prog: str, cppfilt: bool = True) -> dict:
+    """Load symbols from a program's symbol table using nm tool."""
     sym = {}
-    for line in f.readlines():
+
+    pattern = re.compile(r"[^:]+:\s*([0-9a-fA-F]+)? (\w) (\w+)")
+    sp = subprocess.run(["nm", "-o", prog], stdout=subprocess.PIPE, text=True)
+    for line in sp.stdout.split("\n"):
         match = pattern.match(line)
-        if not match or match.groups()[0] == None:
+        if not match or match.groups()[0] is None:
             continue
-        addr, kind, name = match.groups()
-        addr = hex_conv(addr)
-        if name[0] == '_' and not name.startswith("__cyg_profile_func_"):
-            name = name[1:]
-        sym[addr]=name
+        addr, _, name = match.groups()
+        addr = int(addr, 16)
+        sym[addr] = name
 
     if "__cyg_profile_func_enter" not in sym.values():
-        print("Error: "+prog+" doesn't appear to be instrumented. ")
-        end_trace()
+        print(f"Error: {prog} doesn't appear to be instrumented")
+        trace_end()
 
-    f.close()
+    if cppfilt:
+        sp = subprocess.run(["c++filt"], input="\n".join(sym.values()),
+                            capture_output=True, text=True)
+        sym = dict(zip(sym.keys(), sp.stdout.split("\n")))
+
     return sym
 
 
-# Print a program's trace
 def trace(prog):
-    sym = load_symbols(prog)
-    trace_file = os.path.abspath("TRACE")
-    tr = open(trace_file, 'r')
-
+    """Print a program's trace."""
     printer = Printer()
+    sym = load_symbols(prog, cppfilt=True)
+    subprocess.Popen([os.path.abspath(prog)])
+    with open(TRACE_FIFO_NAME, 'r') as f:
+        for line in f:
+            tag, addr = line.split()
+            if tag == "EXIT":
+                break
+            name = sym.get(int(addr, 16), "??")
+            printer(tag, name)
+    print()
 
-    while True:
-        line = tr.readline()
-        if line:
-            s = line.split()
-
-            if s[0]=="EXIT":
-                end_trace()
-
-            s1 = hex_conv(s[1])
-
-            if s1 in sym.keys():
-                name = sym[s1]
-            else:
-                name = "??"
-
-            printer.printFunction(s[0], name)
-    tr.close()
 
 class Printer:
 
     def __init__(self):
         self.level = 0
-        self.prevname = ""
+        self.name = None
         self.count = 0
 
-    def incr_count(self):
-        self.count = self.count + 1
-
-    def incr_level(self):
-        self.level = self.level + 1
-
-    def decr_level(self):
-        self.level = self.level - 1
+    def __call__(self, tag, name):
+        if tag == "enter":
+            self.do_func(name)
+            self.level = self.level + 1
+            self.name = name
+        else:
+            self.level = self.level - 1
 
     def print_func(self, name):
-        print ("\n   " + self.level*" \t" + "\--" + name, end = '')
+        print("\n" + self.level * "| " + "\\- " + name, end='')
 
     def print_totals(self):
-        print (" (total: %d times)" % (self.count+1), end = '')
+        print(f" (total: {self.count + 1} times)", end='')
 
     def do_func(self, name):
-        if self.prevname == name:
+        if self.name == name:
             # was the counter counting?
             if self.count == 0:
                 self.print_func(name)
-            self.incr_count()
+            self.count = self.count + 1
         else:
             # New name received. Was the counter counting?
             if self.count > 0:
                 self.print_totals()
-                self.count=0
-
+                self.count = 0
             self.print_func(name)
 
-    def printFunction(self, status, name):
-        if status == "enter":
-            self.do_func(name)
-            # Check if new name compared to previous input
-            self.incr_level()
-            self.prevname = name
-        else:
-            self.decr_level()
-            if name == "main":
-                if self.count > 0:
-                    self.print_totals()
-                print()
-                end_trace()
 
-# Main
-if __name__=="__main__":
-    if len(sys.argv)<2:
-        print("Usage: analysis <binary name>")
+if __name__ == "__main__":
+
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <prog>")
         sys.exit(1)
 
-    init_trace()
+    trace_init()
     trace(sys.argv[1])
+    trace_end()
