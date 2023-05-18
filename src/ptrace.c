@@ -1,5 +1,3 @@
-
-/*-------------------------------------------------------------------------*/
 /**
   @file		ptrace.c
   @author	N. Devillard, V. Chudnovsky
@@ -28,7 +26,6 @@
   'etrace' project on freshmeat for more information about how to dig
   the information.
 */
-/*--------------------------------------------------------------------------*/
 
 /*
 	$Id: ptrace.c,v 1.1.1.1 2004-03-16 20:00:07 ndevilla Exp $
@@ -61,8 +58,7 @@
 #include "any files needed for PTRACE_REFERENCE_FUNCTION"
 #define PTRACE_REFERENCE_FUNCTION functionName
 
-`*/
-
+*/
 
 /*---------------------------------------------------------------------------
 								Defines
@@ -110,7 +106,7 @@ gnu_ptrace_init(void)
 	FILE *f;
 
 	/* See if a trace file exists */
-	if (stat(PTRACE_PIPENAME, &sta) != 0) 
+	if (stat(PTRACE_PIPENAME, &sta) != 0)
 	{
 			/* No trace file: do not trace at all */
 		return 0;
