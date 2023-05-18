@@ -18,14 +18,8 @@ Pre-requisites
 
 * gcc version 2.95 or later
 * Python version 3.6 or later
-* POSIX IPC primitives Python module: https://pypi.org/project/posix-ipc
-* presence of the `nm` utility on your machine, with a compatible BSD output
-* presence of the `c++filt` utility on your machine
-
-Portability
------------
-
-This code is known to run under Linux, FreeBSD, Solaris, and HPUX.
+* POSIX IPC primitives Python module: <https://pypi.org/project/posix-ipc>
+* presence of the `nm` utility on your machine
 
 Example using etrace
 --------------------

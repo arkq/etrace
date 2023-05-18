@@ -26,12 +26,12 @@ def trace_end():
     sys.exit(0)
 
 
-def load_symbols(prog: str, cppfilt: bool = True) -> dict:
+def load_symbols(prog: str) -> dict:
     """Load symbols from a program's symbol table using nm tool."""
     sym = {}
 
-    pattern = re.compile(r"[^:]+:\s*([0-9a-fA-F]+)? (\w) (\w+)")
-    sp = subprocess.run(["nm", "-o", prog], stdout=subprocess.PIPE, text=True)
+    pattern = re.compile(r"([0-9a-fA-F]+) (\w) (.+)")
+    sp = subprocess.run(["nm", "-BC", prog], stdout=subprocess.PIPE, text=True)
     for line in sp.stdout.split("\n"):
         match = pattern.match(line)
         if not match or match.groups()[0] is None:
@@ -44,18 +44,13 @@ def load_symbols(prog: str, cppfilt: bool = True) -> dict:
         print(f"Error: {prog} doesn't appear to be instrumented")
         trace_end()
 
-    if cppfilt:
-        sp = subprocess.run(["c++filt"], input="\n".join(sym.values()),
-                            capture_output=True, text=True)
-        sym = dict(zip(sym.keys(), sp.stdout.split("\n")))
-
     return sym
 
 
 def trace(prog):
     """Print a program's trace."""
     printer = Printer()
-    sym = load_symbols(prog, cppfilt=True)
+    sym = load_symbols(prog)
     subprocess.Popen([os.path.abspath(prog)])
     while True:
         message, _ = TRACE_MQ.receive()
