@@ -84,9 +84,9 @@ platform-independent you should have a look at the BFD library from the GNU
 project.
 
 `etrace` implements a much simpler (but of course much less portable) solution
-by using the `nm` and `c++filt` utilities to dump a list of all defined symbols
-and associated addresses. The link between them and the pretty printing as a
-function call tree is all done in the `etrace` script.
+by using the `nm` utility to dump a list of all defined symbols and associated
+addresses. The link between them and the pretty printing as a function call
+tree is all done in the `etrace` script.
 
 ptrace.c/etrace usage
 ---------------------
@@ -106,7 +106,7 @@ How to use it in your code
 
 To trace a stand-alone program, there is no need to #include any additional
 file. Just compile you code with the `-finstrument-functions` gcc option and
-link it against `ptrace.c` and `rt` library. This should do it.
+link it against `ptrace.c`, `dl` and `rt` library. This should do it.
 
 Now when you want to trace at run-time (handy to see where the code breaks
 in case of segfault), launch `etrace myprogram` in terminal.

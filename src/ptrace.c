@@ -40,6 +40,9 @@
 								Includes
  ---------------------------------------------------------------------------*/
 
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <link.h>
 #include <mqueue.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,9 +91,10 @@ gnu_ptrace_init(void)
 		return -1;
 	}
 
-	FILE *f = fopen("/proc/self/maps", "r");
-	fscanf(f, "%zx", &offset);
-	fclose(f);
+	Dl_info info;
+	struct link_map * lm;
+	if (dladdr1(&offset, &info, (void **)&lm, RTLD_DI_LINKMAP) != 0)
+		offset = lm->l_addr;
 
 	atexit(gnu_ptrace_close);
 
