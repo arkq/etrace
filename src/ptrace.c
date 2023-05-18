@@ -2,7 +2,7 @@
   @file		ptrace.c
   @author	N. Devillard, V. Chudnovsky
   @date		March 2004
-  @version	$Revision: 1.1.1.1 $
+  @version	$Revision: 2.0 $
   @brief	Add tracing capability to any program compiled with gcc.
 
   This module is only compiled when using gcc and tracing has been
@@ -34,134 +34,88 @@
 	$Revision: 1.1.1.1 $
 */
 
-#if (__GNUC__>2) || ((__GNUC__ == 2) && (__GNUC_MINOR__ > 95))
+#if (__GNUC__ > 2) || ((__GNUC__ == 2) && (__GNUC_MINOR__ > 95))
 
 /*---------------------------------------------------------------------------
 								Includes
  ---------------------------------------------------------------------------*/
 
+#include <mqueue.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #include <string.h>
-#include <sys/errno.h>
-
-/*---------------------------------------------------------------------------
-							    User Macros
- ---------------------------------------------------------------------------*/
-#define PTRACE_PIPENAME	 "TRACE"
-
-/* When using ptrace on a dynamic library, the following must be defined:
-
-#include "any files needed for PTRACE_REFERENCE_FUNCTION"
-#define PTRACE_REFERENCE_FUNCTION functionName
-
-*/
+#include <sys/types.h>
+#include <unistd.h>
 
 /*---------------------------------------------------------------------------
 								Defines
  ---------------------------------------------------------------------------*/
 
-#define REFERENCE_OFFSET "REFERENCE:"
-#define FUNCTION_ENTRY   "enter"
-#define FUNCTION_EXIT    "exit"
-#define END_TRACE        "EXIT"
-#define __NON_INSTRUMENT_FUNCTION__    __attribute__((__no_instrument_function__))
-#define PTRACE_OFF        __NON_INSTRUMENT_FUNCTION__
-#define STR(_x)          #_x
-#define DEF(_x)          _x
-#define GET(_x,_y)       _x(_y)
-#define TRACE __GNU_PTRACE_FILE__
+#define TRACE_MQ_NAME "/eTrace"
+#define TRACE_TAG_ENTER "enter"
+#define TRACE_TAG_EXIT "exit"
+#define TRACE_TAG_TERMINATE "END"
+#define __NON_INSTRUMENT_FUNCTION__ __attribute__((__no_instrument_function__))
+
 /*---------------------------------------------------------------------------
 							Function codes
  ---------------------------------------------------------------------------*/
 
-/** Initial trace open */
-static FILE *__GNU_PTRACE_FILE__;
+/** Message queue handle */
+static mqd_t mq = -1;
 
 /** Code segment offset */
 static size_t offset;
 
 /** Final trace close */
-static void
-__NON_INSTRUMENT_FUNCTION__
+static void __NON_INSTRUMENT_FUNCTION__
 gnu_ptrace_close(void)
 {
-	fprintf(TRACE, END_TRACE " %ld\n", (long)getpid());
-
-	if (TRACE != NULL)
-		fclose(TRACE);
-	return ;
+	char buffer[128];
+	sprintf(buffer, "%s %ld", TRACE_TAG_TERMINATE, (long)getpid());
+	mq_send(mq, buffer, strlen(buffer), 0);
+	mq_close(mq);
 }
 
 /** Trace initialization */
-static int
-__NON_INSTRUMENT_FUNCTION__
+static int __NON_INSTRUMENT_FUNCTION__
 gnu_ptrace_init(void)
 {
-	struct stat sta;
-	__GNU_PTRACE_FILE__ = NULL;
-	FILE *f;
 
-	/* See if a trace file exists */
-	if (stat(PTRACE_PIPENAME, &sta) != 0)
-	{
-			/* No trace file: do not trace at all */
-		return 0;
+	/* Open the message queue. If it does not exist, it means we have been
+	 * launched not by the tracing script. In this case, we do not trace. */
+	if ((mq = mq_open(TRACE_MQ_NAME, O_WRONLY)) == -1) {
+		return -1;
 	}
-	else
-	{
-			/* trace file: open up trace file */
-		if ((TRACE = fopen(PTRACE_PIPENAME, "a")) == NULL)
-		{
-			char *msg = strerror(errno);
-			perror(msg);
-			printf("[gnu_ptrace error]\n");
-			return 0;
-		}
 
-		#ifdef PTRACE_REFERENCE_FUNCTION
-		fprintf(TRACE,"%s %s %p\n",
-			REFERENCE_OFFSET,
-			GET(STR,PTRACE_REFERENCE_FUNCTION),
-			(void *)GET(DEF,PTRACE_REFERENCE_FUNCTION));
-		#endif
+	FILE *f = fopen("/proc/self/maps", "r");
+	fscanf(f, "%zx", &offset);
+	fclose(f);
 
-		/* Tracing requested: a trace file was found */
-		atexit(gnu_ptrace_close);
+	atexit(gnu_ptrace_close);
 
-		f = fopen("/proc/self/maps", "r");
-		fscanf(f, "%zx", &offset);
-		fclose(f);
-
-		return 1;
-	}
+	return 1;
 }
 
 /** Function called by every function event */
-void
+static void
 __NON_INSTRUMENT_FUNCTION__
-gnu_ptrace(const char * what, void * p)
+gnu_ptrace(const char *tag, void *p)
 {
-	static int first=1;
-	static int active=1;
+	static int first = 1;
+	static int active = 0;
 
-	if (active == 0)
-		return;
-
-	if (first)
-	{
+	if (first == 1) {
 		active = gnu_ptrace_init();
 		first = 0;
-
-		if (active == 0)
-			return;
 	}
 
-	fprintf(TRACE, "%s %p\n", what, (unsigned char *)p - offset);
-	fflush(TRACE);
+	if (active == 1) {
+		char buffer[128];
+		sprintf(buffer, "%s %p", tag, (unsigned char *)p - offset);
+		mq_send(mq, buffer, strlen(buffer), 0);
+	}
+
 	return;
 }
 
@@ -174,7 +128,7 @@ void
 __NON_INSTRUMENT_FUNCTION__
 __cyg_profile_func_enter(void *this_fn, void *call_site)
 {
-	gnu_ptrace(FUNCTION_ENTRY, this_fn);
+	gnu_ptrace(TRACE_TAG_ENTER, this_fn);
 	(void)call_site;
 }
 
@@ -183,7 +137,7 @@ void
 __NON_INSTRUMENT_FUNCTION__
 __cyg_profile_func_exit(void *this_fn, void *call_site)
 {
-	gnu_ptrace(FUNCTION_EXIT, this_fn);
+	gnu_ptrace(TRACE_TAG_EXIT, this_fn);
 	(void)call_site;
 }
 
@@ -192,4 +146,3 @@ __cyg_profile_func_exit(void *this_fn, void *call_site)
 #endif
 
 #endif
-/* vim: set ts=4 et sw=4 tw=75 */

@@ -6,25 +6,23 @@ import re
 import subprocess
 import sys
 
+from posix_ipc import MessageQueue, O_CREAT
 
-TRACE_FIFO_NAME = "TRACE"
-TRACE_FIFO_CREATED = False
+
+TRACE_TAG_ENTER = b"enter"
+TRACE_TAG_EXIT = b"exit"
+TRACE_TAG_TERMINATE = b"END"
+TRACE_MQ_NAME = "/eTrace"
+TRACE_MQ = None
 
 
 def trace_init():
-    """Create a TRACE FIFO if it doesn't exist."""
-    global TRACE_FIFO_CREATED
-    try:
-        os.mkfifo(TRACE_FIFO_NAME)
-        TRACE_FIFO_CREATED = True
-    except FileExistsError:
-        pass
+    global TRACE_MQ
+    TRACE_MQ = MessageQueue(TRACE_MQ_NAME, flags=O_CREAT, max_messages=1)
 
 
 def trace_end():
-    """Remove TRACE FIFO if it exists."""
-    if TRACE_FIFO_CREATED:
-        os.remove(TRACE_FIFO_NAME)
+    TRACE_MQ.unlink()
     sys.exit(0)
 
 
@@ -59,14 +57,14 @@ def trace(prog):
     printer = Printer()
     sym = load_symbols(prog, cppfilt=True)
     subprocess.Popen([os.path.abspath(prog)])
-    with open(TRACE_FIFO_NAME, 'r') as f:
-        for line in f:
-            tag, addr = line.split()
-            if tag == "EXIT":
-                break
-            name = sym.get(int(addr, 16), "??")
-            printer(tag, name)
-    print()
+    while True:
+        message, _ = TRACE_MQ.receive()
+        tag, addr = message.split()
+        if tag == TRACE_TAG_TERMINATE:
+            break
+        name = sym.get(int(addr, 16), "??")
+        printer(tag, name)
+    sys.stderr.write("\n")
 
 
 class Printer:
@@ -77,7 +75,7 @@ class Printer:
         self.count = 0
 
     def __call__(self, tag, name):
-        if tag == "enter":
+        if tag == TRACE_TAG_ENTER:
             self.do_func(name)
             self.level = self.level + 1
             self.name = name
@@ -85,10 +83,10 @@ class Printer:
             self.level = self.level - 1
 
     def print_func(self, name):
-        print("\n" + self.level * "| " + name, end='')
+        sys.stderr.write("\n" + self.level * "| " + name)
 
     def print_totals(self):
-        print(f" (total: {self.count + 1} times)", end='')
+        sys.stderr.write(f" (total: {self.count + 1} times)")
 
     def do_func(self, name):
         if self.name == name:
