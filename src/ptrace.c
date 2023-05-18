@@ -115,9 +115,16 @@ gnu_ptrace(const char *tag, void *p)
 	}
 
 	if (active == 1) {
+
+#if defined(__thumb__)
+		/* convert thumb address to arm address */
+		p = (void *)((size_t)p & ~1);
+#endif
+
 		char buffer[128];
 		sprintf(buffer, "%s %p", tag, (unsigned char *)p - offset);
 		mq_send(mq, buffer, strlen(buffer), 0);
+
 	}
 
 	return;
