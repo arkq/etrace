@@ -47,11 +47,11 @@ def load_symbols(prog: str) -> dict:
     return sym
 
 
-def trace(prog):
+def trace(prog, *args):
     """Print a program's trace."""
     printer = Printer()
     sym = load_symbols(prog)
-    subprocess.Popen([os.path.abspath(prog)])
+    subprocess.Popen([os.path.abspath(prog)] + list(args))
     while True:
         message, _ = TRACE_MQ.receive()
         tag, addr = message.split()
@@ -99,10 +99,10 @@ class Printer:
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <prog>")
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <prog> [arglist]")
         sys.exit(1)
 
     trace_init()
-    trace(sys.argv[1])
+    trace(sys.argv[1], *sys.argv[2:])
     trace_end()
