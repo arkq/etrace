@@ -3,67 +3,85 @@
 
 import os
 import re
+import signal
 import subprocess
 import sys
 
-from posix_ipc import MessageQueue, O_CREAT
-
+from posix_ipc import O_CREAT, MessageQueue, SignalError
 
 TRACE_TAG_ENTER = b"enter"
 TRACE_TAG_EXIT = b"exit"
 TRACE_TAG_TERMINATE = b"END"
 TRACE_MQ_NAME = "/eTrace"
-TRACE_MQ = None
 
 
-def trace_init():
-    global TRACE_MQ
-    TRACE_MQ = MessageQueue(TRACE_MQ_NAME, flags=O_CREAT, max_messages=1)
+class Tracer:
+    def __init__(self, prog: str, *args):
+        self._TRACE_MQ = None
+        self.prog = prog
+        self.args = args
+        signal.signal(signal.SIGINT, self.stop)
 
+    def __enter__(self):
+        self.trace_init()
+        return self
 
-def trace_end():
-    TRACE_MQ.unlink()
-    sys.exit(0)
+    def __call__(self):
+        self.trace()
 
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.trace_end()
 
-def load_symbols(prog: str) -> dict:
-    """Load symbols from a program's symbol table using nm tool."""
-    sym = {}
+    def trace_init(self):
+        self._TRACE_MQ = MessageQueue(TRACE_MQ_NAME, flags=O_CREAT, max_messages=1)
 
-    pattern = re.compile(r"([0-9a-fA-F]+) (\w) (.+)")
-    sp = subprocess.run(["nm", "-BC", prog], stdout=subprocess.PIPE, text=True)
-    for line in sp.stdout.split("\n"):
-        match = pattern.match(line)
-        if not match or match.groups()[0] is None:
-            continue
-        addr, _, name = match.groups()
-        addr = int(addr, 16)
-        sym[addr] = name
+    def trace_end(self):
+        self._TRACE_MQ.unlink()
+        sys.exit(0)
 
-    if "__cyg_profile_func_enter" not in sym.values():
-        print(f"Error: {prog} doesn't appear to be instrumented")
-        trace_end()
+    def trace(self):
+        """Print a program's trace."""
+        printer = Printer()
+        sym = self.load_symbols()
+        self.proc = subprocess.Popen([os.path.abspath(self.prog)] + list(self.args))
+        while True:
+            try:
+                message, _ = self._TRACE_MQ.receive()
+                tag, addr = message.split()
+                if tag == TRACE_TAG_TERMINATE:
+                    break
+                name = sym.get(int(addr, 16), "??")
+                printer(tag, name)
+            except SignalError:
+                sys.stderr.write("\nSignalError received")
+                continue
+        sys.stderr.write("\n")
 
-    return sym
+    def load_symbols(self) -> dict:
+        """Load symbols from a program's symbol table using nm tool."""
+        sym = {}
 
+        pattern = re.compile(r"([0-9a-fA-F]+) (\w) (.+)")
+        sp = subprocess.run(["nm", "-BC", self.prog], stdout=subprocess.PIPE, text=True)
+        for line in sp.stdout.split("\n"):
+            match = pattern.match(line)
+            if not match or match.groups()[0] is None:
+                continue
+            addr, _, name = match.groups()
+            addr = int(addr, 16)
+            sym[addr] = name
 
-def trace(prog, *args):
-    """Print a program's trace."""
-    printer = Printer()
-    sym = load_symbols(prog)
-    subprocess.Popen([os.path.abspath(prog)] + list(args))
-    while True:
-        message, _ = TRACE_MQ.receive()
-        tag, addr = message.split()
-        if tag == TRACE_TAG_TERMINATE:
-            break
-        name = sym.get(int(addr, 16), "??")
-        printer(tag, name)
-    sys.stderr.write("\n")
+        if "__cyg_profile_func_enter" not in sym.values():
+            raise RuntimeError(f"Error: {self.prog} doesn't appear to be instrumented")
+
+        return sym
+
+    def stop(self, signum, frame):
+        sys.stderr.write("\nStopping...")
+        self.proc.send_signal(signal.SIGINT)
 
 
 class Printer:
-
     def __init__(self):
         self.level = 0
         self.name = None
@@ -98,11 +116,8 @@ class Printer:
 
 
 if __name__ == "__main__":
-
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} <prog> [arglist]")
         sys.exit(1)
-
-    trace_init()
-    trace(sys.argv[1], *sys.argv[2:])
-    trace_end()
+    with Tracer(sys.argv[1], *sys.argv[2:]) as tracer:
+        tracer()
