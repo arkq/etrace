@@ -20,7 +20,9 @@ class Tracer:
         self._TRACE_MQ = None
         self.prog = prog
         self.args = args
-        signal.signal(signal.SIGINT, self.stop)
+        self._running = True
+        self._stop_counter = 0
+        signal.signal(signal.SIGINT, self._stop)
 
     def __enter__(self):
         self.trace_init()
@@ -44,7 +46,7 @@ class Tracer:
         printer = Printer()
         sym = self.load_symbols()
         self.proc = subprocess.Popen([os.path.abspath(self.prog)] + list(self.args))
-        while True:
+        while self._running:
             try:
                 message, _ = self._TRACE_MQ.receive()
                 tag, addr = message.split()
@@ -76,9 +78,12 @@ class Tracer:
 
         return sym
 
-    def stop(self, signum, frame):
+    def _stop(self, signum, frame):
         sys.stderr.write("\nStopping...")
         self.proc.send_signal(signal.SIGINT)
+        if self._stop_counter > 0:
+            self._running = False
+        self._stop_counter += 1
 
 
 class Printer:
