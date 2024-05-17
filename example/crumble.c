@@ -1,6 +1,4 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 void Crumble_buy(char * what, int quantity, char * unit)
@@ -29,7 +27,7 @@ int Crumble_prepare_apples(void)
 {
 	Crumble_skin_and_dice();
 	sleep(1);
-	return 1 ;
+	return 1;
 }
 
 int Crumble_mix(char * a, char * b, char * c, char * d)
@@ -38,7 +36,6 @@ int Crumble_mix(char * a, char * b, char * c, char * d)
 	sleep(1);
 	return 1;
 }
-
 
 int Crumble_put(char * what, char * where)
 {
@@ -71,8 +68,8 @@ void Crumble_cook(void)
 
 void Crumble_make_apple_crumble(void)
 {
-	int	apples ;
-	int	crumble ;
+	int	apples;
+	int	crumble;
 
 	Crumble_buy_stuff();
 	apples = Crumble_prepare_apples();
@@ -85,6 +82,5 @@ void Crumble_make_apple_crumble(void)
 int main(int argc, char * argv[])
 {
 	Crumble_make_apple_crumble();
-	return 0 ;
+	return 0;
 }
-

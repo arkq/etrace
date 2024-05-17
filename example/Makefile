@@ -1,11 +1,21 @@
-CC     := gcc
-CFLAGS := -g -finstrument-functions --std=gnu99
+CC       := gcc
+CXX      := g++
+CFLAGS   := -g -finstrument-functions -rdynamic
+CXXFLAGS := -g -finstrument-functions -rdynamic
 
-crumble: crumble.c ../src/ptrace.c
-	$(CC) $(CFLAGS) -o crumble crumble.c ../src/ptrace.c -ldl -lrt
+.PHONY: run
+run: crumble_c crumble_cpp
+	echo "C executable:"
+	./crumble_c
+	echo "C++ executable:"
+	./crumble_cpp
 
-run: crumble
-	../src/etrace crumble
+crumble_c: crumble.c ../src/etrace.c
+	$(CC) $(CFLAGS) -o $@ $^ -ldl -lrt
 
+crumble_cpp: crumble.cpp ../src/etrace.c
+	$(CXX) $(CXXFLAGS) -o $@ $^ -ldl -lrt
+
+.PHONY: clean
 clean:
-	rm -f crumble TRACE
+	rm -f crumble_c crumble_cpp
